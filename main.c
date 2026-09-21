@@ -13,6 +13,7 @@ Following are the allowed symbols:\n\
 - Implication: =>\n\
 - Iff: <=>\n\
 It is possible to dictate the order of evaluation using braces.\n\
+You must use alphabetically incrementing variable symbols starting at A.\n\
 The output will include the full DNF and full CNF form of the expression, found using its truth table.\n\n\
 Example input:\n\
 (A=>B)=>C\n\
@@ -66,7 +67,7 @@ void free_globals() {
 }
 
 /*
-    Returns the number of capital letters in a string.
+    Returns the number of unique capital letters in a string.
     Filters expressions with illegal variable form.
     May terminate program on its own.
 */
@@ -322,10 +323,6 @@ void fill_minterms_maxterms(const char* postfix, unsigned variable_count) {
         }
     }
 }
-
-/*
-        Input example: (!B||(A=>B))||(!C&&B)
-*/
 
 int main(int argc, char* argv[]) {
     if (argc == 1) {
