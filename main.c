@@ -3,6 +3,25 @@
 #include <stdlib.h>
 #include <string.h>
 
+const char* informational_message =
+    "Instructions:\n\
+Run the program with a single argument, a raw string, being the propositional expression.\n\
+Following are the allowed symbols:\n\
+- Negation: !\n\
+- Conjunction: &&\n\
+- Disjunction: ||\n\
+- Implication: =>\n\
+- Iff: <=>\n\
+It is possible to dictate the order of evaluation using braces.\n\
+The output will include the full DNF and full CNF form of the expression, found using its truth table.\n\n\
+Example input:\n\
+(A=>B)=>C\n\
+Example output:\n\
+FULL DNF:\n\
+(A&&!B&&!C) || (!A&&!B&&C) || (A&&!B&&C) || (!A&&B&&C) || (A&&B&&C)\n\
+FULL CNF:\n\
+(A||B||C) && (A||!B||C) && (!A||!B||C)\n";
+
 // We won't be changing the capacity, no need to store it this time.
 typedef struct {
     char** strings;
@@ -11,14 +30,16 @@ typedef struct {
 
 /*
     globals (yuck!)
-    one benefit is, static memory (global) is 0-initialized.
-    then, .size will not include garbage values, and we do not need to initialize it.
+    if you really hate them, just move them into the local scope and pass them around as parameters,
+    like a loser.
+    remember that static memory (globals) are zero-initialized, not garbage.
  */
 string_array minterms;
 string_array maxterms;
 
+/* Make sure we don't have memory leaks if our dumb user messes us up. */
 void main_panic() {
-    fprintf(stderr, "Placeholder error message.\n");
+    fprintf(stderr, informational_message);
     for (size_t i = 0ULL; i < minterms.size; ++i) free(minterms.strings[i]);
     for (size_t i = 0ULL; i < maxterms.size; ++i) free(maxterms.strings[i]);
 
@@ -31,10 +52,11 @@ void main_panic() {
 void init_panic(char* postfix, char* stack) {
     free(postfix);
     free(stack);
-    fprintf(stderr, "Placeholder error message.\n");
+    fprintf(stderr, informational_message);
     exit(EXIT_FAILURE);
 }
 
+/* You want to get 100% on Progtest, don''t you? FREE! */
 void free_globals() {
     for (size_t i = 0ULL; i < minterms.size; ++i) free(minterms.strings[i]);
     for (size_t i = 0ULL; i < maxterms.size; ++i) free(maxterms.strings[i]);
@@ -44,32 +66,48 @@ void free_globals() {
 }
 
 /*
-    The main task is to return the full DNF and full CNF forms of a given proposition f.
-    We will pass through all valuations of the truth table,
-    disjuncting the true rows, and conjuncting the negated false rows.
+    Returns the number of capital letters in a string.
+    Filters expressions with illegal variable form.
+    May terminate program on its own.
 */
-
-/* Returns the number of capital letters in string */
-unsigned get_variable_count(const char* expression) {
+unsigned parse_variables(const char* expression) {
+    // lazy last minute implementation for naughty users.
+    bool* visited_variables = calloc(strlen(expression), sizeof(bool));
     unsigned cnt = 0;
-    for (const char* c = expression; *c != 0; ++c)  // read until null terminator
-        if (isupper(*c)) ++cnt;
+    for (const char* c = expression; *c != 0; ++c) {  // read until null terminator
+        if (isupper(*c) && !visited_variables[*c - 'A']) {
+            visited_variables[*c - 'A'] = true;
+            ++cnt;
+        }
+    }
+
+    for (unsigned i = 0; i < cnt; ++i) {
+        if (!visited_variables[i]) {
+            free(visited_variables);
+            fprintf(stderr, informational_message);
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    free(visited_variables);
 
     return cnt;
 }
 
 /*
     Returns value of variable given current state.
-    state is used as a bitset, where LSB = A, second to LSB=B, etc.
-    In case the character is negative, it has been negated, so we return the negation
+    state is used as a bitset, where LSB corresponds to A, second to LSB corresponds to B, etc.
+    state goes from 0..2^(variable_count), tracing over every possible row in the truth table -
+    every combination. In case the character is negative, it has been negated, so we return the
+    negation of the mask.
 */
 bool value(char c, size_t state) {
     return c > 0 ? (1 << (c - 'A')) & state : !((1 << (-c - 'A')) & state);
 }
 
 /*
-    Allocate and return postfix notation of expression.
-    All operands have equal precedence, except brackets.
+    Allocate and return postfix notation of given expression.
+    Shunting yard algorithm with no precedence - operands have equal precedence, except brackets.
 
     && is encoded as '*'
     || is encoded as '+'
@@ -77,13 +115,15 @@ bool value(char c, size_t state) {
     <=> is encoded as '='
 
     Dealing with unary negation is done differently.
-    Since we are dealing with signed chars, we will apply demorgan and interpret !B as -'B'
+    Since we are dealing with signed chars,
+    we will conveniently apply demorgan and interpret !B as -'B'
 
     Negation of * is +, and negation of + is *, but what of > and =?
     We will implement the logic for handling negation of implication/iff later,
-    but we still need to encode it. Choose their negations, -'>' and -'=' respectively.
+    but we still need to encode it. Choose their char negations, -'>' and -'=' respectively.
 */
 const char* postfix_expression(const char* infix) {
+    // fill with null-terminators to avoid segfaulting later
     char* postfix = calloc(strlen(infix) + 1, sizeof(char));
     size_t postfix_idx = 0ULL;
 
@@ -96,6 +136,7 @@ const char* postfix_expression(const char* infix) {
     for (size_t token_idx = 0ULL; token_idx < strlen(infix); ++token_idx) {
         if (isspace(infix[token_idx])) continue;
 
+        /* Search for known patterns, throw error for irregular syntax. */
         switch (infix[token_idx]) {
             case '&':
                 if (infix[++token_idx] != '&') init_panic(postfix, stack_operator);
@@ -119,6 +160,10 @@ const char* postfix_expression(const char* infix) {
                 break;
 
             case '!':
+                if (infix[token_idx + 1] == '!') {  // special case for nested negation
+                    ++token_idx;
+                    break;
+                }
                 if (isupper(infix[token_idx + 1])) {
                     postfix[postfix_idx++] = -infix[++token_idx];
                     break;
@@ -141,10 +186,11 @@ const char* postfix_expression(const char* infix) {
                         found_start = true;
                         break;
                     }
+
                     postfix[postfix_idx++] = stack_operator[stack_size];
                 }
 
-                // empty stack, still no closing bracket
+                // empty stack, still no corresponding closing bracket
                 if (!found_start) init_panic(postfix, stack_operator);
                 break;
 
@@ -162,6 +208,10 @@ const char* postfix_expression(const char* infix) {
     return postfix;
 }
 
+/*
+    Temporarily stores operands on a stack, and evaluates when encountering an operator.
+    Continues until entire postfix has been read.
+*/
 bool evaluate_postfix(const char* postfix, size_t state) {
     char* stack = malloc(strlen(postfix) * sizeof(char));
     size_t stack_size = 0ULL;
@@ -211,18 +261,18 @@ bool evaluate_postfix(const char* postfix, size_t state) {
     Minterms correspond to inputs for which the function evaluates to true
 */
 char* create_minterm(size_t state, unsigned variable_count) {
-    char* minterm = calloc(variable_count * 5, sizeof(char));
+    char* minterm = calloc(variable_count * 5ULL, sizeof(char));
     size_t minterm_size = 0ULL;
     minterm[minterm_size++] = '(';
-    for (size_t variable = 0ULL; variable < variable_count - 1; ++variable) {
-        if (!(state & (1 << variable))) minterm[minterm_size++] = '!';
+    for (size_t variable = 0ULL; variable < variable_count - 1ULL; ++variable) {
+        if (!(state & (1ULL << variable))) minterm[minterm_size++] = '!';
         minterm[minterm_size++] = 'A' + variable;
         minterm[minterm_size++] = '&';
         minterm[minterm_size++] = '&';
     }
 
-    if (!(state & (1 << variable_count - 1))) minterm[minterm_size++] = '!';
-    minterm[minterm_size++] = 'A' + variable_count - 1;
+    if (!(state & (1ULL << variable_count - 1ULL))) minterm[minterm_size++] = '!';
+    minterm[minterm_size++] = 'A' + variable_count - 1ULL;
     minterm[minterm_size++] = ')';
     return minterm;
 }
@@ -231,11 +281,11 @@ char* create_minterm(size_t state, unsigned variable_count) {
     Maxterms correspond to (negation of) inputs for which the function evaluates to false.
 */
 char* create_maxterm(size_t state, unsigned variable_count) {
-    char* maxterm = calloc(variable_count * 5, sizeof(char));
+    char* maxterm = calloc(variable_count * 5ULL, sizeof(char));
     size_t maxterm_size = 0ULL;
     maxterm[maxterm_size++] = '(';
     for (size_t variable = 0ULL; variable < variable_count - 1; ++variable) {
-        if ((state & (1 << variable))) maxterm[maxterm_size++] = '!';
+        if ((state & (1ULL << variable))) maxterm[maxterm_size++] = '!';
         maxterm[maxterm_size++] = 'A' + variable;
         maxterm[maxterm_size++] = '|';
         maxterm[maxterm_size++] = '|';
@@ -253,12 +303,12 @@ void fill_minterms_maxterms(const char* postfix, unsigned variable_count) {
         Let's be lazy and allocate max size for both.
     */
 
-    minterms.strings = malloc(sizeof(char*) * 1 << variable_count);
-    maxterms.strings = malloc(sizeof(char*) * 1 << variable_count);
+    minterms.strings = malloc(sizeof(char*) << variable_count);
+    maxterms.strings = malloc(sizeof(char*) << variable_count);
 
-    for (size_t state = 0ULL; state < 1 << variable_count; ++state) {
+    for (size_t state = 0b0ULL; state < 1ULL << variable_count; ++state) {
         /*
-            state = 000 -> 001 -> 010 -> 011 -> 100 -> ...
+            state = 0b000 -> 0b001 -> 0b010 -> 0b011 -> 0b100 -> ...
             Will go over every possible combination from
             2^(variable_count) scenarios of the truth table.
             right-most bit corresponds with A, second to right-most corresponds with B, etc.
@@ -277,25 +327,20 @@ void fill_minterms_maxterms(const char* postfix, unsigned variable_count) {
         Input example: (!B||(A=>B))||(!C&&B)
 */
 
-void debug_postfix_abs(const char* pf) {
-    for (const char* c = pf; *c != 0; ++c) printf("%c", abs(*c));
-    printf("\n");
-}
-
 int main(int argc, char* argv[]) {
+    if (argc == 1) {
+        printf(informational_message);
+        return EXIT_SUCCESS;
+    }
+
     if (argc != 2) {
-        fprintf(stderr, "Placeholder error message.\n");
+        fprintf(stderr, informational_message);
         return EXIT_FAILURE;
     }
 
     const char* expression = argv[1];
     const char* postfix = postfix_expression(expression);
-    size_t variable_count = get_variable_count(expression);
-
-    // printf("Postfix: %s\n", postfix);
-    // printf("Abs Postfix: ");
-    // debug_postfix_abs(postfix);
-    // temp_name(postfix, variable_count);
+    size_t variable_count = parse_variables(expression);
 
     fill_minterms_maxterms(postfix, variable_count);
     printf("FULL DNF:\n");
