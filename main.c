@@ -302,7 +302,8 @@ char* create_maxterm(size_t state, unsigned variable_count) {
     return maxterm;
 }
 
-void fill_minterms_maxterms(const char* postfix, unsigned variable_count) {
+/* Returns 1 for tautology, -1 for contradiction, 0 for neither */
+int fill_minterms_maxterms(const char* postfix, unsigned variable_count) {
     /*
         By theorem, #minterms + #maxterms == 2^(variable_count)
         Let's be lazy and allocate max size for both.
@@ -311,6 +312,8 @@ void fill_minterms_maxterms(const char* postfix, unsigned variable_count) {
     minterms.strings = malloc(sizeof(char*) << variable_count);
     maxterms.strings = malloc(sizeof(char*) << variable_count);
 
+    bool tautology = true;
+    bool contradiction = true;
     for (size_t state = 0b0ULL; state < 1ULL << variable_count; ++state) {
         /*
             state = 0b000 -> 0b001 -> 0b010 -> 0b011 -> 0b100 -> ...
@@ -321,11 +324,17 @@ void fill_minterms_maxterms(const char* postfix, unsigned variable_count) {
 
         bool truth_valuation = evaluate_postfix(postfix, state);
         if (truth_valuation) {
+            contradiction = false;
             minterms.strings[minterms.size++] = create_minterm(state, variable_count);
         } else {
+            tautology = false;
             maxterms.strings[maxterms.size++] = create_maxterm(state, variable_count);
         }
     }
+
+    if (tautology) return 1;
+    if (contradiction) return -1;
+    return 0;
 }
 
 int main(int argc, char* argv[]) {
@@ -343,7 +352,18 @@ int main(int argc, char* argv[]) {
     char* postfix = postfix_expression(expression);
     size_t variable_count = parse_variables(expression);
 
-    fill_minterms_maxterms(postfix, variable_count);
+    int special_case = fill_minterms_maxterms(postfix, variable_count);
+
+    if (special_case == 1) {
+        printf("Tautology\n");
+        return EXIT_SUCCESS;
+    }
+
+    if (special_case == -1) {
+        printf("Contradiction\n");
+        return EXIT_SUCCESS;
+    }
+
     printf("FULL DNF:\n");
     for (size_t i = 0ULL; i < minterms.size - 1; ++i) printf("%s || ", minterms.strings[i]);
     printf("%s\n", minterms.strings[minterms.size - 1]);
