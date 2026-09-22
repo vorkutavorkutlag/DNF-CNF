@@ -123,7 +123,7 @@ bool value(char c, size_t state) {
     We will implement the logic for handling negation of implication/iff later,
     but we still need to encode it. Choose their char negations, -'>' and -'=' respectively.
 */
-const char* postfix_expression(const char* infix) {
+char* postfix_expression(const char* infix) {
     // fill with null-terminators to avoid segfaulting later
     char* postfix = calloc(strlen(infix) + 1, sizeof(char));
     size_t postfix_idx = 0ULL;
@@ -268,8 +268,10 @@ char* create_minterm(size_t state, unsigned variable_count) {
     for (size_t variable = 0ULL; variable < variable_count - 1ULL; ++variable) {
         if (!(state & (1ULL << variable))) minterm[minterm_size++] = '!';
         minterm[minterm_size++] = 'A' + variable;
+        minterm[minterm_size++] = ' ';
         minterm[minterm_size++] = '&';
         minterm[minterm_size++] = '&';
+        minterm[minterm_size++] = ' ';
     }
 
     if (!(state & (1ULL << variable_count - 1ULL))) minterm[minterm_size++] = '!';
@@ -288,8 +290,10 @@ char* create_maxterm(size_t state, unsigned variable_count) {
     for (size_t variable = 0ULL; variable < variable_count - 1; ++variable) {
         if ((state & (1ULL << variable))) maxterm[maxterm_size++] = '!';
         maxterm[maxterm_size++] = 'A' + variable;
+        maxterm[maxterm_size++] = ' ';
         maxterm[maxterm_size++] = '|';
         maxterm[maxterm_size++] = '|';
+        maxterm[maxterm_size++] = ' ';
     }
 
     if ((state & (1 << variable_count - 1))) maxterm[maxterm_size++] = '!';
@@ -336,7 +340,7 @@ int main(int argc, char* argv[]) {
     }
 
     const char* expression = argv[1];
-    const char* postfix = postfix_expression(expression);
+    char* postfix = postfix_expression(expression);
     size_t variable_count = parse_variables(expression);
 
     fill_minterms_maxterms(postfix, variable_count);
@@ -348,6 +352,7 @@ int main(int argc, char* argv[]) {
     for (size_t i = 0ULL; i < maxterms.size - 1; ++i) printf("%s && ", maxterms.strings[i]);
     printf("%s\n", maxterms.strings[maxterms.size - 1]);
 
+    free(postfix);
     free_globals();
     return EXIT_SUCCESS;
 }
